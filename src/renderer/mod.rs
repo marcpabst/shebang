@@ -274,7 +274,6 @@ impl Renderer {
                 device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Texture Bind Group Layout"),
                     entries: &[
-                        // buffer 0 contains uniform data
                         wgpu::BindGroupLayoutEntry {
                             binding: 0,
                             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -354,7 +353,11 @@ impl Renderer {
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
             multiview: None,
         });
 
@@ -389,10 +392,7 @@ impl Renderer {
 
         for geom in geoms {
             // add material
-            let t0 = Instant::now();
             self.add_material(&device, geom.material.clone());
-            let t1 = Instant::now();
-            println!("add_material: {:?}", t1 - t0);
         }
 
         {

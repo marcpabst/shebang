@@ -73,14 +73,25 @@ fn main() {
         TessellationOptions::Fill,
     );
 
-    let g2b = Geom::new(
+    let g2a = Geom::new(
         Primitive::Rectangle {
-            a: Point2D::new(0.0, 0.0),
+            a: Point2D::new(-300.0, -300.0),
             b: Point2D::new(300.0, 300.0),
         },
         Material::Color {
-            color: Colour::new(1.0, 0.0, 0.0, 1.0),
+            color: Colour::LIGHTGREY,
         },
+        Some(transform.into()),
+        vec![],
+        TessellationOptions::Fill,
+    );
+
+    let g2b = Geom::new(
+        Primitive::Rectangle {
+            a: Point2D::new(-300.0, -300.0),
+            b: Point2D::new(300.0, 300.0),
+        },
+        Material::Color { color: Colour::RED },
         Some(transform.into()),
         vec![],
         TessellationOptions::simple_line(15.0),
@@ -107,7 +118,7 @@ fn main() {
             b: Point2D::new(0.0, 50.0),
         },
         Material::Color {
-            color: Colour::new(1.0, 1.0, 1.0, 1.0),
+            color: Colour::WHITE,
         },
         Some(transform.into()),
         vec![],
@@ -130,7 +141,7 @@ fn main() {
     let mut app = App {
         window: None,
         gfx_state: None,
-        geoms: vec![g1, g2, g2b, g3, g4, g5],
+        geoms: vec![g1, g2, g2a, g2b, g3, g4, g5],
         window_size,
     };
 
