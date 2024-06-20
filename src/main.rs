@@ -1,20 +1,12 @@
-use std::ops::{Range, Rem};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use lyon::extra::rust_logo::build_logo_path;
-use lyon::path::{Path, Polygon, NO_ATTRIBUTES};
-use lyon::tessellation;
-use lyon::tessellation::geometry_builder::*;
-use lyon::tessellation::{FillOptions, FillTessellator};
-use lyon::tessellation::{StrokeOptions, StrokeTessellator};
-
-use lyon::algorithms::{rounded_polygon, walk};
+use std::time::Instant;
 
 use renderer::geometry::{Geom, Point2D, Primitive, TessellationOptions, Vector2};
-use renderer::material::{Colour, Material, TextureStretchMode};
+use renderer::material::{
+    Colour, Material, TextureFilter, TextureMaterial, TextureRepeat, TextureSize,
+};
+use renderer::texture::TextureFormat;
 use renderer::Renderer;
-use wgpu::core::device::queue;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -38,11 +30,13 @@ fn main() {
     ]);
 
     // create a texture
-    let texture1 = renderer::texture::Texture::new_from_image(
+    let texture1 = renderer::texture::Texture::from_image(
         image::load_from_memory(include_bytes!("test.png")).unwrap(),
+        TextureFormat::Srgba8U,
     );
-    let texture2 = renderer::texture::Texture::new_from_image(
+    let texture2 = renderer::texture::Texture::from_image(
         image::load_from_memory(include_bytes!("einstein.jpg")).unwrap(),
+        TextureFormat::Srgba8U,
     );
 
     // create a blue circle
@@ -51,9 +45,7 @@ fn main() {
             center: Point2D::new(0.0, 0.0),
             radius: 100.0,
         },
-        Material::Color {
-            color: Colour::new(0.0, 1.0, 0.0, 1.0),
-        },
+        Material::Colour(Colour::new(0.0, 1.0, 0.0, 1.0)),
         Some(transform.into()),
         vec![],
         TessellationOptions::Fill,
@@ -64,10 +56,14 @@ fn main() {
             a: Point2D::new(-100.0, -100.0),
             b: Point2D::new(800.0, 700.0),
         },
-        Material::Texture {
+        Material::Texture(TextureMaterial {
             texture: texture1,
-            stretch: TextureStretchMode::Stretch,
-        },
+            size_x: TextureSize::Relative(0.5),
+            size_y: TextureSize::Relative(1.0),
+            repeat_x: TextureRepeat::Clamp,
+            repeat_y: TextureRepeat::Clamp,
+            filter: TextureFilter::Linear,
+        }),
         Some(transform.into()),
         vec![],
         TessellationOptions::Fill,
@@ -78,9 +74,7 @@ fn main() {
             a: Point2D::new(-300.0, -300.0),
             b: Point2D::new(300.0, 300.0),
         },
-        Material::Color {
-            color: Colour::LIGHTGREY,
-        },
+        Material::Colour(Colour::LIGHTGREY),
         Some(transform.into()),
         vec![],
         TessellationOptions::Fill,
@@ -91,7 +85,7 @@ fn main() {
             a: Point2D::new(-300.0, -300.0),
             b: Point2D::new(300.0, 300.0),
         },
-        Material::Color { color: Colour::RED },
+        Material::Colour(Colour::RED),
         Some(transform.into()),
         vec![],
         TessellationOptions::simple_line(15.0),
@@ -99,14 +93,17 @@ fn main() {
 
     let g3 = Geom::new(
         Primitive::Ellipse {
-            center: Point2D::new(-200.0, -200.0),
-            radii: Vector2::new(300.0, 400.0),
-            rotation: 25.0,
+            center: Point2D::new(-400.0, -200.0),
+            radii: Vector2::new(300.0, 800.0),
         },
-        Material::Texture {
+        Material::Texture(TextureMaterial {
             texture: texture2,
-            stretch: TextureStretchMode::Stretch,
-        },
+            size_x: TextureSize::Original,
+            size_y: TextureSize::Original,
+            repeat_x: TextureRepeat::Clamp,
+            repeat_y: TextureRepeat::Repeat,
+            filter: TextureFilter::Linear,
+        }),
         Some(transform.into()),
         vec![],
         TessellationOptions::Fill,
@@ -117,9 +114,7 @@ fn main() {
             a: Point2D::new(0.0, -50.0),
             b: Point2D::new(0.0, 50.0),
         },
-        Material::Color {
-            color: Colour::WHITE,
-        },
+        Material::Colour(Colour::WHITE),
         Some(transform.into()),
         vec![],
         TessellationOptions::simple_line(15.0),
@@ -130,9 +125,7 @@ fn main() {
             a: Point2D::new(-50.0, 0.0),
             b: Point2D::new(50.0, 0.0),
         },
-        Material::Color {
-            color: Colour::new(1.0, 1.0, 1.0, 1.0),
-        },
+        Material::Colour(Colour::new(1.0, 1.0, 1.0, 1.0)),
         Some(transform.into()),
         vec![],
         TessellationOptions::simple_line(15.0),
@@ -143,6 +136,7 @@ fn main() {
         gfx_state: None,
         geoms: vec![g1, g2, g2a, g2b, g3, g4, g5],
         window_size,
+        i: 0,
     };
 
     event_loop.run_app(&mut app).unwrap();
@@ -156,6 +150,7 @@ struct App {
     gfx_state: Option<GPUState>,
     geoms: Vec<Geom>,
     window_size: PhysicalSize<u32>,
+    i: u32,
 }
 
 impl ApplicationHandler for App {
@@ -180,7 +175,7 @@ impl ApplicationHandler for App {
                 self.window.as_ref().unwrap().request_redraw();
             }
             WindowEvent::Destroyed | WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => {
+            WindowEvent::Resized(..) => {
                 // todo!("resize");
             }
             WindowEvent::KeyboardInput {
@@ -201,14 +196,18 @@ impl ApplicationHandler for App {
             return;
         }
 
-        self.gfx_state.as_mut().unwrap().paint(&self.geoms);
+        self.gfx_state
+            .as_mut()
+            .unwrap()
+            .paint(&mut self.geoms, self.i);
+
+        self.i += 1;
     }
 }
 
 /// Everything needed for wgpu graphics
 struct GPUState {
     device: wgpu::Device,
-    surface_desc: wgpu::SurfaceConfiguration,
     /// Drawable surface, which contains an `Arc<Window>`
     surface: wgpu::Surface<'static>,
     queue: wgpu::Queue,
@@ -236,12 +235,16 @@ impl GPUState {
                 .await
                 .unwrap();
 
+            let f = adapter.get_texture_format_features(wgpu::TextureFormat::Rgba32Float);
+
+            println!("{:?}", f);
+
             // Create a device and a queue
             adapter
                 .request_device(
                     &wgpu::DeviceDescriptor {
                         label: None,
-                        required_features: wgpu::Features::empty(),
+                        required_features: wgpu::Features::default(),
                         required_limits: wgpu::Limits::default(),
                     },
                     None,
@@ -252,7 +255,7 @@ impl GPUState {
 
         let surface_desc = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: wgpu::TextureFormat::Bgra8Unorm,
+            format: wgpu::TextureFormat::Rgba16Float,
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
@@ -268,14 +271,13 @@ impl GPUState {
 
         Self {
             device,
-            surface_desc,
             surface,
             queue,
             renderer,
         }
     }
 
-    fn paint(&mut self, geoms: &[Geom]) {
+    fn paint(&mut self, geoms: &mut [Geom], i: u32) {
         let frame = match self.surface.get_current_texture() {
             Ok(texture) => texture,
             Err(e) => {
@@ -283,6 +285,13 @@ impl GPUState {
                 return;
             }
         };
+
+        // change the colour of geom 2
+        if i % 2 == 0 {
+            geoms[2].material = Material::Colour(Colour::RED);
+        } else {
+            geoms[2].material = Material::Colour(Colour::BLUE);
+        }
 
         let frame_view = frame
             .texture

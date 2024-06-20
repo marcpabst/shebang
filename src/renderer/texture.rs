@@ -1,7 +1,17 @@
 use std::sync::Arc;
 
 use super::helpers::{CacheEntry, Cacheable, Fingerprint};
-use image::{DynamicImage, RgbaImage};
+use image::{DynamicImage, Rgba32FImage, RgbaImage};
+
+#[derive(Debug, Clone)]
+pub enum TextureFormat {
+    /// 8-bit sRGB with an alpha channel and sRGB encoding.
+    Srgba8U,
+    /// 8-bit linear with an alpha channel.
+    Rgba8U,
+    /// 32-bit float linear with an alpha channel.
+    Rgba32F,
+}
 
 /// A texture.
 #[derive(Debug, Clone)]
@@ -10,6 +20,15 @@ pub enum Texture {
     RgbaImageTexture {
         /// The image data.
         image: Arc<RgbaImage>,
+        /// The internal id for caching.
+        id: CacheEntry,
+        /// The fingerprint. Changes when the image changes.
+        fingerprint: u64,
+    },
+    /// A texture backed by a RGBA image.
+    Rgba32FImageTexture {
+        /// The image data.
+        image: Arc<Rgba32FImage>,
         /// The internal id for caching.
         id: CacheEntry,
         /// The fingerprint. Changes when the image changes.
@@ -27,17 +46,51 @@ pub enum Texture {
         id: CacheEntry,
         /// The fingerprint. Changes when the buffer changes.
         fingerprint: u64,
+        /// The format of the texture.
+        format: TextureFormat,
     },
 }
 
 impl Texture {
     /// New texture from a RGBA image.
-    pub fn new_from_image(image: DynamicImage) -> Self {
-        let image = image.into_rgba8();
-        Self::RgbaImageTexture {
-            image: Arc::new(image),
+    pub fn from_image(image: DynamicImage, format: TextureFormat) -> Self {
+        match format {
+            TextureFormat::Srgba8U => {
+                let image = image.into_rgba8();
+                Self::RgbaImageTexture {
+                    image: Arc::new(image),
+                    id: CacheEntry::new(),
+                    fingerprint: rand::random(),
+                }
+            }
+            TextureFormat::Rgba8U => {
+                let image = image.into_rgba8();
+                Self::RgbaImageTexture {
+                    image: Arc::new(image),
+                    id: CacheEntry::new(),
+                    fingerprint: rand::random(),
+                }
+            }
+            TextureFormat::Rgba32F => {
+                let image = image.into_rgba32f();
+                Self::Rgba32FImageTexture {
+                    image: Arc::new(image),
+                    id: CacheEntry::new(),
+                    fingerprint: rand::random(),
+                }
+            }
+        }
+    }
+
+    /// New texture from a raw buffer.
+    pub fn from_raw(buffer: Vec<u8>, width: u32, height: u32, format: TextureFormat) -> Self {
+        Self::RawTexture {
+            buffer,
+            width,
+            height,
             id: CacheEntry::new(),
             fingerprint: rand::random(),
+            format,
         }
     }
 
@@ -65,6 +118,7 @@ impl Texture {
     pub fn size(&self) -> (u32, u32) {
         match self {
             Self::RgbaImageTexture { image, .. } => image.dimensions(),
+            Self::Rgba32FImageTexture { image, .. } => image.dimensions(),
             Self::RawTexture { width, height, .. } => (*width, *height),
         }
     }
@@ -72,6 +126,7 @@ impl Texture {
     pub fn width(&self) -> u32 {
         match self {
             Self::RgbaImageTexture { image, .. } => image.width(),
+            Self::Rgba32FImageTexture { image, .. } => image.width(),
             Self::RawTexture { width, .. } => *width,
         }
     }
@@ -79,6 +134,7 @@ impl Texture {
     pub fn height(&self) -> u32 {
         match self {
             Self::RgbaImageTexture { image, .. } => image.height(),
+            Self::Rgba32FImageTexture { image, .. } => image.height(),
             Self::RawTexture { height, .. } => *height,
         }
     }
@@ -86,7 +142,24 @@ impl Texture {
     pub fn data(&self) -> &[u8] {
         match self {
             Self::RgbaImageTexture { image, .. } => &image,
+            Self::Rgba32FImageTexture { image, .. } => bytemuck::cast_slice(&image),
             Self::RawTexture { buffer, .. } => buffer,
+        }
+    }
+
+    pub fn bytes_per_row(&self) -> u32 {
+        match self {
+            Self::RgbaImageTexture { image, .. } => image.width() * 4,
+            Self::Rgba32FImageTexture { image, .. } => image.width() * 16,
+            Self::RawTexture { width, .. } => *width * 4,
+        }
+    }
+
+    pub fn format(&self) -> TextureFormat {
+        match self {
+            Self::RgbaImageTexture { .. } => TextureFormat::Srgba8U,
+            Self::Rgba32FImageTexture { .. } => TextureFormat::Rgba32F,
+            Self::RawTexture { .. } => TextureFormat::Rgba8U,
         }
     }
 }
@@ -95,6 +168,7 @@ impl Fingerprint for Texture {
     fn fingerprint(&self) -> u64 {
         match self {
             Self::RgbaImageTexture { fingerprint, .. } => *fingerprint,
+            Self::Rgba32FImageTexture { fingerprint, .. } => *fingerprint,
             Self::RawTexture { fingerprint, .. } => *fingerprint,
         }
     }
@@ -104,6 +178,7 @@ impl Cacheable for Texture {
     fn cache_id(&self) -> CacheEntry {
         match self {
             Self::RgbaImageTexture { id, .. } => id.clone(),
+            Self::Rgba32FImageTexture { id, .. } => id.clone(),
             Self::RawTexture { id, .. } => id.clone(),
         }
     }

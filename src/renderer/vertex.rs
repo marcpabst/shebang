@@ -1,7 +1,6 @@
 use lyon::{geom::Angle, path::Winding};
 
 use super::geometry::{LineCap, LineJoin, Point2D, Primitive, TessellationOptions};
-use std::collections::HashMap;
 
 /// A vertex with position, color, and texture coordinates.
 #[repr(C)]
@@ -131,7 +130,7 @@ impl GPUGeometryBuffer {
         let mut tessellator = lyon::tessellation::StrokeTessellator::new();
 
         // create the tessellation options
-        let mut lyon_options = match options {
+        let lyon_options = match options {
             TessellationOptions::Stroke {
                 line_width,
                 line_join,
@@ -190,12 +189,8 @@ impl GPUGeometryBuffer {
                     )
                     .unwrap();
             }
-            Primitive::Ellipse {
-                center,
-                radii,
-                rotation,
-            } => {
-                let rot_rad = Angle::degrees(*rotation);
+            Primitive::Ellipse { center, radii } => {
+                let rot_rad = Angle::degrees(0.0);
                 tessellator
                     .tessellate_ellipse(
                         lyon::math::Point::new(center.x, center.y),
@@ -232,7 +227,7 @@ impl GPUGeometryBuffer {
             .push((self.indices.len() - indices_offset as usize) as u32);
     }
 
-    pub fn tesselate_fill(&mut self, primitive: &Primitive, options: &TessellationOptions) {
+    pub fn tesselate_fill(&mut self, primitive: &Primitive, _options: &TessellationOptions) {
         // create the tessellator
         let mut tessellator = lyon::tessellation::FillTessellator::new();
 
@@ -267,12 +262,8 @@ impl GPUGeometryBuffer {
                     )
                     .unwrap();
             }
-            Primitive::Ellipse {
-                center,
-                radii,
-                rotation,
-            } => {
-                let rot_rad = Angle::degrees(*rotation);
+            Primitive::Ellipse { center, radii, .. } => {
+                let rot_rad = Angle::degrees(0.0);
                 tessellator
                     .tessellate_ellipse(
                         lyon::math::Point::new(center.x, center.y),

@@ -7,11 +7,7 @@
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
-    marker::PhantomData,
-    sync::{
-        atomic::{AtomicBool, AtomicUsize},
-        Arc,
-    },
+    sync::{atomic::AtomicBool, Arc},
 };
 
 /// A trait for types that can't reasonably be hashed, but you need a fast fingerprint for.
@@ -153,6 +149,6 @@ impl<T> Cache<T> {
 
     // clear the cache of all entries that have no references outside the cache
     pub fn sweep(&mut self) {
-        self.data.retain(|k, v| !k.is_sole_ref());
+        self.data.retain(|k, _| !k.is_sole_ref());
     }
 }

@@ -1,19 +1,16 @@
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::num::NonZeroU64;
-use std::sync::Arc;
-use std::time::Instant;
 
 use geometry::Geom;
 
-use geometry::Primitive;
-use geometry::TessellationOptions;
 use geometry::Transformation;
 use helpers::Cache;
-use lyon::geom::Transform;
+use material::TextureFilter;
+use material::TextureRepeat;
 use material::{Material, MaterialType};
 
 use texture::Texture;
+use texture::TextureFormat;
 use vertex::GPUGeometryBuffer;
 use vertex::GPUVertex;
 use wgpu;
@@ -22,6 +19,7 @@ pub mod geometry;
 pub mod helpers;
 pub mod material;
 pub mod texture;
+pub mod uniform_structs;
 pub mod vertex;
 
 const VERRTEX_BUFFER_SIZE_MB: u32 = 20;
@@ -45,6 +43,7 @@ pub struct Renderer {
     /// The global bind group.
     bind_group: wgpu::BindGroup,
     /// Global tesselation cache.
+    #[allow(dead_code)]
     tesselation_cache: Cache<CachedTesselation>,
     /// Global texture cache.
     texture_cache: Cache<CachedTexture>,
@@ -158,6 +157,12 @@ impl Renderer {
             return;
         }
 
+        let texture_format = match texture.format() {
+            TextureFormat::Srgba8U => wgpu::TextureFormat::Rgba8UnormSrgb,
+            TextureFormat::Rgba8U => wgpu::TextureFormat::Rgba8Unorm,
+            TextureFormat::Rgba32F => wgpu::TextureFormat::Rgba32Float,
+        };
+
         // create the texture
         let gpu_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Texture"),
@@ -169,9 +174,9 @@ impl Renderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: texture_format,
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+            view_formats: &[texture_format],
         });
 
         // create the texture view
@@ -196,7 +201,7 @@ impl Renderer {
             &texture.data(),
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * texture.width()), // 4 bytes per pixel
+                bytes_per_row: Some(texture.bytes_per_row()),
                 rows_per_image: Some(texture.height()),
             },
             wgpu::Extent3d {
@@ -270,6 +275,20 @@ impl Renderer {
         let mut texture_bind_group_layout = None;
 
         if material.has_texture() {
+            let filter = material
+                .texture_filter()
+                .expect("Material does not have texture filter. This should not happen.");
+
+            let gpu_filter = match filter {
+                TextureFilter::Nearest => wgpu::FilterMode::Nearest,
+                TextureFilter::Linear => wgpu::FilterMode::Linear,
+            };
+
+            let sampler_binding_type = match gpu_filter {
+                wgpu::FilterMode::Nearest => wgpu::SamplerBindingType::NonFiltering,
+                wgpu::FilterMode::Linear => wgpu::SamplerBindingType::Filtering,
+            };
+
             let _texture_bind_group_layout =
                 device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Texture Bind Group Layout"),
@@ -280,14 +299,16 @@ impl Renderer {
                             ty: wgpu::BindingType::Texture {
                                 multisampled: false,
                                 view_dimension: wgpu::TextureViewDimension::D2,
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                sample_type: wgpu::TextureSampleType::Float {
+                                    filterable: (gpu_filter == wgpu::FilterMode::Linear),
+                                },
                             },
                             count: None,
                         },
                         wgpu::BindGroupLayoutEntry {
                             binding: 1,
                             visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            ty: wgpu::BindingType::Sampler(sampler_binding_type),
                             count: None,
                         },
                     ],
@@ -299,19 +320,38 @@ impl Renderer {
                 push_constant_ranges: &[],
             });
 
+            // get address modes from material
+            let repeat_modes = material
+                .texture_repeat_modes()
+                .expect("Material does not have texture repeat modes. This should not happen.");
+
+            let address_mode_u = match repeat_modes.0 {
+                TextureRepeat::Repeat => wgpu::AddressMode::Repeat,
+                TextureRepeat::Clamp => wgpu::AddressMode::ClampToEdge,
+                TextureRepeat::Mirror => wgpu::AddressMode::MirrorRepeat,
+                TextureRepeat::None => wgpu::AddressMode::ClampToBorder,
+            };
+
+            let address_mode_v = match repeat_modes.1 {
+                TextureRepeat::Repeat => wgpu::AddressMode::Repeat,
+                TextureRepeat::Clamp => wgpu::AddressMode::ClampToEdge,
+                TextureRepeat::Mirror => wgpu::AddressMode::MirrorRepeat,
+                TextureRepeat::None => wgpu::AddressMode::ClampToBorder,
+            };
+
             texture_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("Texture Sampler"),
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_u: address_mode_u,
+                address_mode_v: address_mode_v,
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Linear,
+                mag_filter: gpu_filter,
+                min_filter: gpu_filter,
+                mipmap_filter: wgpu::FilterMode::Nearest,
                 lod_min_clamp: 0.0,
                 lod_max_clamp: 100.0,
                 compare: None,
                 anisotropy_clamp: 1,
-                border_color: None,
+                border_color: Some(wgpu::SamplerBorderColor::TransparentBlack),
             }));
 
             texture_bind_group_layout = Some(_texture_bind_group_layout);
@@ -346,7 +386,7 @@ impl Renderer {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Bgra8Unorm,
+                    format: wgpu::TextureFormat::Rgba16Float,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],

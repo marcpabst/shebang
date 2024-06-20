@@ -9,6 +9,7 @@ use super::material::Material;
 /// A geometry object defined by what to render (a primitive and tessellation) and how to render it (a material).
 pub struct Geom {
     /// Internal id for caching.
+    #[allow(dead_code)]
     id: CacheEntry,
     /// The primitive to render.
     pub primitive: Primitive,
@@ -67,11 +68,7 @@ pub enum Primitive {
     /// A path defined by a list of points.
     Path { points: Vec<Point2D> },
     /// An ellipse defined by a center point and two radii.
-    Ellipse {
-        center: Point2D,
-        radii: Vector2,
-        rotation: f32,
-    },
+    Ellipse { center: Point2D, radii: Vector2 },
 }
 
 // make Primitive Eq
@@ -119,16 +116,11 @@ impl Fingerprint for Primitive {
                 b.x.to_bits().hash(&mut state);
                 b.y.to_bits().hash(&mut state);
             }
-            Primitive::Ellipse {
-                center,
-                radii,
-                rotation,
-            } => {
+            Primitive::Ellipse { center, radii } => {
                 center.x.to_bits().hash(&mut state);
                 center.y.to_bits().hash(&mut state);
                 radii.x.to_bits().hash(&mut state);
                 radii.y.to_bits().hash(&mut state);
-                rotation.to_bits().hash(&mut state);
             }
             _ => todo!(),
         }
@@ -155,7 +147,7 @@ impl Primitive {
                 };
                 BBox { aa, bb }
             }
-            Primitive::RoundedRectangle { a, b, radius } => {
+            Primitive::RoundedRectangle { a, b, .. } => {
                 let aa = Point2D {
                     x: a.x.min(b.x),
                     y: a.y.min(b.y),
@@ -216,11 +208,8 @@ impl Primitive {
                 };
                 BBox { aa, bb }
             }
-            Primitive::Ellipse {
-                center,
-                radii,
-                rotation,
-            } => {
+            Primitive::Ellipse { center, radii } => {
+                // calculate the bounding box of the ellipse
                 let aa = Point2D {
                     x: center.x - radii.x,
                     y: center.y - radii.y,
