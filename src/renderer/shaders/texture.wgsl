@@ -4,6 +4,11 @@ struct VertexOutput {
     @location(1) tex_coords: vec2<f32>,
 };
 
+struct ScreenUniforms {
+    width: u32,
+    height: u32,
+};
+
 struct BBox {
     min: vec2<f32>,
     max: vec2<f32>,
@@ -21,6 +26,9 @@ struct TextureUniforms {
 };
 
 @group(0) @binding(0)
+var<uniform> screen_uniforms: ScreenUniforms;
+
+@group(0) @binding(1)
 var<uniform> uniforms: TextureUniforms;
 
 @group(1) @binding(0)

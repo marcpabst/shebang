@@ -46,7 +46,7 @@ fn main() {
             radius: 100.0,
         },
         Material::Colour(Colour::new(0.0, 1.0, 0.0, 1.0)),
-        Some(transform.into()),
+        None,
         vec![],
         TessellationOptions::Fill,
     );
@@ -64,7 +64,7 @@ fn main() {
             repeat_y: TextureRepeat::Clamp,
             filter: TextureFilter::Linear,
         }),
-        Some(transform.into()),
+        None,
         vec![],
         TessellationOptions::Fill,
     );
@@ -75,7 +75,7 @@ fn main() {
             b: Point2D::new(300.0, 300.0),
         },
         Material::Colour(Colour::LIGHTGREY),
-        Some(transform.into()),
+        None,
         vec![],
         TessellationOptions::Fill,
     );
@@ -86,7 +86,7 @@ fn main() {
             b: Point2D::new(300.0, 300.0),
         },
         Material::Colour(Colour::RED),
-        Some(transform.into()),
+        None,
         vec![],
         TessellationOptions::simple_line(15.0),
     );
@@ -104,7 +104,7 @@ fn main() {
             repeat_y: TextureRepeat::Repeat,
             filter: TextureFilter::Linear,
         }),
-        Some(transform.into()),
+        None,
         vec![],
         TessellationOptions::Fill,
     );
@@ -115,7 +115,7 @@ fn main() {
             b: Point2D::new(0.0, 50.0),
         },
         Material::Colour(Colour::WHITE),
-        Some(transform.into()),
+        None,
         vec![],
         TessellationOptions::simple_line(15.0),
     );
@@ -126,7 +126,7 @@ fn main() {
             b: Point2D::new(50.0, 0.0),
         },
         Material::Colour(Colour::new(1.0, 1.0, 1.0, 1.0)),
-        Some(transform.into()),
+        None,
         vec![],
         TessellationOptions::simple_line(15.0),
     );
@@ -134,7 +134,7 @@ fn main() {
     let mut app = App {
         window: None,
         gfx_state: None,
-        geoms: vec![g1, g2, g2a, g2b, g3, g4, g5],
+        geoms: vec![g2a, g2b, g3, g4, g5],
         window_size,
         i: 0,
     };
@@ -176,7 +176,14 @@ impl ApplicationHandler for App {
             }
             WindowEvent::Destroyed | WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(..) => {
-                // todo!("resize");
+                self.window_size = self.window.as_ref().unwrap().inner_size();
+                let gfx_state = self.gfx_state.as_mut().unwrap();
+                gfx_state.surface_desc.width = self.window_size.width;
+                gfx_state.surface_desc.height = self.window_size.height;
+                // update the surface
+                gfx_state
+                    .surface
+                    .configure(&gfx_state.device, &gfx_state.surface_desc);
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -212,6 +219,7 @@ struct GPUState {
     surface: wgpu::Surface<'static>,
     queue: wgpu::Queue,
     renderer: Renderer,
+    surface_desc: wgpu::SurfaceConfiguration,
 }
 
 impl GPUState {
@@ -274,6 +282,7 @@ impl GPUState {
             surface,
             queue,
             renderer,
+            surface_desc,
         }
     }
 
@@ -305,10 +314,12 @@ impl GPUState {
 
         // draw the primitives
         let t0 = Instant::now();
-        let rd = self
-            .renderer
-            .prepare(&mut self.device, &mut self.queue, geoms);
-
+        let rd = self.renderer.prepare(
+            &mut self.device,
+            &mut self.queue,
+            &self.surface_desc,
+            &geoms,
+        );
         let t1 = Instant::now();
         {
             // A resolve target is only supported if the attachment actually uses anti-aliasing

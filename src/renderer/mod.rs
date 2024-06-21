@@ -11,6 +11,7 @@ use material::{Material, MaterialType};
 
 use texture::Texture;
 use texture::TextureFormat;
+use uniform_structs::ScreenUniforms;
 use vertex::GPUGeometryBuffer;
 use vertex::GPUVertex;
 use wgpu;
@@ -106,9 +107,19 @@ impl Renderer {
             label: Some("Bind Group Layout"),
             // The binding for the uniform buffer.
             entries: &[
-                // buffer 0 contains uniform data
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // buffer 1 contains uniform data
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -122,14 +133,24 @@ impl Renderer {
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &uniform_buffer,
-                    offset: 0,
-                    size: Some(NonZeroU64::new(256).unwrap()),
-                }),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &uniform_buffer,
+                        offset: 0,
+                        size: Some(NonZeroU64::new(256).unwrap()),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &uniform_buffer,
+                        offset: 0,
+                        size: Some(NonZeroU64::new(256).unwrap()),
+                    }),
+                },
+            ],
             label: Some("Global uniform bind Group"),
         });
 
@@ -418,17 +439,18 @@ impl Renderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        surface_desc: &wgpu::SurfaceConfiguration,
         geoms: &[Geom],
     ) -> RenderData {
         let mut draw_buffer_collector = GPUGeometryBuffer::new();
 
         let offset_alignment = device.limits().min_uniform_buffer_offset_alignment as usize;
 
-        let mut uniform_buffer_offsets: Vec<u32> = vec![0];
+        let mut uniform_buffer_offsets: Vec<u32> = vec![2 * offset_alignment as u32];
         let mut texture_bind_groups: Vec<Option<wgpu::BindGroup>> = vec![];
 
         // calculate total size of the uniform buffer
-        let uniform_buffer_size = geoms.len() * offset_alignment;
+        let uniform_buffer_size = geoms.len() * offset_alignment + 2 * offset_alignment;
 
         for geom in geoms {
             // add material
@@ -443,6 +465,15 @@ impl Renderer {
                     NonZeroU64::new(uniform_buffer_size as u64).unwrap(),
                 )
                 .expect("Failed to write buffer");
+
+            // write screen uniforms
+            let screen_uniforms = ScreenUniforms {
+                screen_width: surface_desc.width,
+                screen_height: surface_desc.height,
+            };
+
+            staging_buffer[0..std::mem::size_of::<ScreenUniforms>()]
+                .copy_from_slice(bytemuck::bytes_of(&screen_uniforms));
 
             // prepare the draw buffer
             for geom in geoms {
@@ -554,7 +585,7 @@ impl Renderer {
             }
 
             let uniform_offset = rdata.uniform_buffer_offsets[i];
-            rpass.set_bind_group(0, &self.bind_group, &[uniform_offset as u32]);
+            rpass.set_bind_group(0, &self.bind_group, &[0, uniform_offset as u32]);
 
             // if the material has a texture, we need to bind the extra bind group
             if let Some(..) = primitive.material.texture() {
